@@ -7,6 +7,7 @@ interface AppState {
   agents: Agent[]
   messages: Message[]
   selectedAgentId: string | null
+  workingAgentId: string | null
 
   setUser: (user: AppState['user']) => void
   setCompany: (company: Company | null) => void
@@ -15,6 +16,7 @@ interface AppState {
   setMessages: (messages: Message[]) => void
   addMessage: (message: Message) => void
   selectAgent: (id: string | null) => void
+  setWorkingAgent: (id: string | null) => void
 }
 
 export const useStore = create<AppState>((set) => ({
@@ -23,6 +25,7 @@ export const useStore = create<AppState>((set) => ({
   agents: [],
   messages: [],
   selectedAgentId: null,
+  workingAgentId: null,
 
   setUser: (user) => set({ user }),
   setCompany: (company) => set({ company }),
@@ -31,4 +34,5 @@ export const useStore = create<AppState>((set) => ({
   setMessages: (messages) => set({ messages }),
   addMessage: (message) => set((s) => ({ messages: [...s.messages, message] })),
   selectAgent: (selectedAgentId) => set({ selectedAgentId }),
+  setWorkingAgent: (workingAgentId) => set({ workingAgentId }),
 }))

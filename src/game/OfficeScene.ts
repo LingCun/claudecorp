@@ -1,0 +1,275 @@
+import Phaser from 'phaser'
+import type { Agent, AvatarConfig } from '../types'
+
+const TILE = 32
+const FLOOR_W = 20
+const FLOOR_H = 14
+
+interface AgentSprite {
+  id: string
+  container: Phaser.GameObjects.Container
+  body: Phaser.GameObjects.Rectangle
+  hair: Phaser.GameObjects.Rectangle
+  nameText: Phaser.GameObjects.Text
+  workIndicator: Phaser.GameObjects.Text
+  agent: Agent
+  desk: Phaser.GameObjects.Rectangle
+  monitor: Phaser.GameObjects.Rectangle
+}
+
+const HAIR_COLORS = [0x1a1a1a, 0x6b4423, 0xc9a063, 0xe8d4a8, 0xff6b9d, 0x6fc2ff]
+const RANK_BADGE_COLOR: Record<string, number> = {
+  '사원': 0xa0a0a0, '대리': 0x4ade80, '과장': 0x3b82f6, '차장': 0xa855f7,
+  '부장': 0xef4444, '수석': 0xf97316, '대표이사': 0xfbbf24, '부회장': 0x06b6d4, '회장': 0xfde047,
+}
+
+export class OfficeScene extends Phaser.Scene {
+  private sprites = new Map<string, AgentSprite>()
+  private deskPositions: Array<{ x: number; y: number }> = []
+  private chairmanContainer?: Phaser.GameObjects.Container
+  private chairmanInfo?: { displayName: string; photoURL: string }
+  private agentsToRender: Agent[] = []
+
+  constructor() {
+    super({ key: 'OfficeScene' })
+  }
+
+  create() {
+    this.cameras.main.setBackgroundColor('#1a1e2a')
+    this.drawFloor()
+    this.drawWalls()
+    this.drawFurniture()
+    this.computeDeskPositions()
+    this.placeChairman()
+    this.renderAgents()
+  }
+
+  // Called externally from React to update agents
+  updateAgents(agents: Agent[]) {
+    this.agentsToRender = agents
+    if (this.scene.isActive()) this.renderAgents()
+  }
+
+  updateChairman(info: { displayName: string; photoURL: string }) {
+    this.chairmanInfo = info
+    if (this.scene.isActive()) this.placeChairman()
+  }
+
+  setWorking(agentId: string | null) {
+    for (const [id, sprite] of this.sprites) {
+      sprite.workIndicator.setVisible(id === agentId)
+      // Make monitor "glow" when working
+      sprite.monitor.setFillStyle(id === agentId ? 0x4ade80 : 0x334155)
+    }
+  }
+
+  // ── Drawing ─────────────────────────────────────
+  private drawFloor() {
+    const g = this.add.graphics()
+    for (let y = 0; y < FLOOR_H; y++) {
+      for (let x = 0; x < FLOOR_W; x++) {
+        const isEdge = (x + y) % 2 === 0
+        g.fillStyle(isEdge ? 0x2a2f3e : 0x252938, 1)
+        g.fillRect(x * TILE, y * TILE, TILE, TILE)
+      }
+    }
+  }
+
+  private drawWalls() {
+    const g = this.add.graphics()
+    g.fillStyle(0x3a4254, 1)
+    // Top wall
+    g.fillRect(0, 0, FLOOR_W * TILE, TILE)
+    // Window tiles on top wall
+    g.fillStyle(0x60a5fa, 0.4)
+    for (let x = 2; x < FLOOR_W - 2; x += 4) {
+      g.fillRect(x * TILE + 6, 6, TILE - 12, TILE - 12)
+    }
+  }
+
+  private drawFurniture() {
+    // Plants
+    this.drawPlant(TILE * 0.5, TILE * 1.5)
+    this.drawPlant(TILE * (FLOOR_W - 0.5), TILE * 1.5)
+
+    // Coffee machine area (bottom right corner)
+    this.add.rectangle(
+      TILE * (FLOOR_W - 2),
+      TILE * (FLOOR_H - 1.5),
+      TILE * 2.5,
+      TILE * 1.5,
+      0x4a3429,
+    ).setStrokeStyle(2, 0x6b4423)
+    this.add.text(
+      TILE * (FLOOR_W - 2),
+      TILE * (FLOOR_H - 1.5),
+      '☕',
+      { fontSize: '20px' },
+    ).setOrigin(0.5)
+  }
+
+  private drawPlant(x: number, y: number) {
+    this.add.circle(x, y, 8, 0x4a2818).setStrokeStyle(1, 0x2a1810)
+    this.add.text(x, y - 8, '🌿', { fontSize: '14px' }).setOrigin(0.5)
+  }
+
+  private computeDeskPositions() {
+    // Grid of desks: 3 rows × 4 cols, leaving room at top/bottom
+    this.deskPositions = []
+    const startY = TILE * 3
+    const startX = TILE * 2.5
+    const gapX = TILE * 4
+    const gapY = TILE * 3.5
+    for (let r = 0; r < 3; r++) {
+      for (let c = 0; c < 4; c++) {
+        this.deskPositions.push({
+          x: startX + c * gapX,
+          y: startY + r * gapY,
+        })
+      }
+    }
+  }
+
+  // ── Chairman ────────────────────────────────────
+  private placeChairman() {
+    if (this.chairmanContainer) this.chairmanContainer.destroy()
+
+    // Chairman desk in the center back (head position)
+    const x = TILE * (FLOOR_W / 2)
+    const y = TILE * 2.4
+
+    // Bigger desk for chairman
+    this.add.rectangle(x, y + 2, TILE * 2.8, TILE * 1.2, 0x6b4423).setStrokeStyle(2, 0x8b5a2b)
+    this.add.rectangle(x, y - 6, TILE * 1.0, TILE * 0.6, 0x1e293b).setStrokeStyle(1, 0x334155)
+
+    const c = this.add.container(x, y + TILE * 1.2)
+
+    // Body (purple — chairman color)
+    c.add(this.add.rectangle(0, 0, 16, 20, 0x7c3aed).setStrokeStyle(1, 0x4c1d95))
+    // Head
+    c.add(this.add.rectangle(0, -14, 14, 14, 0xfbbf24).setStrokeStyle(1, 0x92400e))
+    // Crown
+    const crown = this.add.text(0, -28, '👑', { fontSize: '16px' }).setOrigin(0.5)
+    c.add(crown)
+    // Name label
+    const name = this.chairmanInfo?.displayName ?? '회장'
+    const label = this.add.text(0, 16, `${name} · 회장`, {
+      fontSize: '10px', color: '#fde047', fontStyle: 'bold',
+      backgroundColor: '#000000aa', padding: { x: 4, y: 1 },
+    }).setOrigin(0.5)
+    c.add(label)
+
+    this.chairmanContainer = c
+  }
+
+  // ── Agents ──────────────────────────────────────
+  private renderAgents() {
+    // Remove sprites for agents no longer in the list
+    const currentIds = new Set(this.agentsToRender.map((a) => a.id))
+    for (const [id, sprite] of this.sprites) {
+      if (!currentIds.has(id)) {
+        sprite.container.destroy()
+        sprite.desk.destroy()
+        sprite.monitor.destroy()
+        this.sprites.delete(id)
+      }
+    }
+
+    // Add/update sprites
+    this.agentsToRender.forEach((agent, idx) => {
+      const pos = this.deskPositions[idx % this.deskPositions.length]
+      if (!pos) return
+
+      let sprite = this.sprites.get(agent.id)
+      if (sprite) {
+        sprite.agent = agent
+        sprite.body.setFillStyle(this.bodyColor(agent.avatar))
+        sprite.hair.setFillStyle(HAIR_COLORS[agent.avatar.hairColor % HAIR_COLORS.length])
+        sprite.nameText.setText(`${agent.name} · ${agent.rank}`)
+        sprite.nameText.setColor(this.rankColor(agent.rank))
+        return
+      }
+
+      // Desk + monitor
+      const desk = this.add.rectangle(pos.x, pos.y + 2, TILE * 2, TILE * 0.9, 0x6b4423)
+        .setStrokeStyle(2, 0x8b5a2b)
+      const monitor = this.add.rectangle(pos.x, pos.y - 8, TILE * 0.7, TILE * 0.45, 0x334155)
+        .setStrokeStyle(1, 0x475569)
+
+      // Character container (positioned below desk = seated at desk)
+      const c = this.add.container(pos.x, pos.y + TILE * 1.1)
+      c.setSize(24, 36)
+      c.setInteractive({ cursor: 'pointer' })
+
+      // Body
+      const body = this.add.rectangle(0, 0, 14, 18, this.bodyColor(agent.avatar))
+        .setStrokeStyle(1, 0x000000)
+      c.add(body)
+
+      // Head
+      c.add(this.add.rectangle(0, -12, 12, 12, 0xfde9c8).setStrokeStyle(1, 0x000000))
+
+      // Hair
+      const hair = this.add.rectangle(0, -16, 14, 6, HAIR_COLORS[agent.avatar.hairColor % HAIR_COLORS.length])
+      c.add(hair)
+
+      // Rank badge dot
+      c.add(this.add.circle(7, -3, 2, RANK_BADGE_COLOR[agent.rank] ?? 0xffffff))
+
+      // Name label
+      const nameText = this.add.text(0, 14, `${agent.name} · ${agent.rank}`, {
+        fontSize: '9px', color: this.rankColor(agent.rank),
+        backgroundColor: '#000000aa', padding: { x: 3, y: 1 },
+      }).setOrigin(0.5)
+      c.add(nameText)
+
+      // Work indicator (floating ✦ above head)
+      const workIndicator = this.add.text(0, -32, '✦', {
+        fontSize: '14px', color: '#fde047',
+      }).setOrigin(0.5).setVisible(false)
+      c.add(workIndicator)
+      this.tweens.add({
+        targets: workIndicator,
+        y: -36,
+        duration: 800,
+        yoyo: true,
+        repeat: -1,
+        ease: 'Sine.easeInOut',
+      })
+
+      // Idle bob
+      this.tweens.add({
+        targets: c,
+        y: pos.y + TILE * 1.1 - 1,
+        duration: 1400 + Math.random() * 400,
+        yoyo: true,
+        repeat: -1,
+        ease: 'Sine.easeInOut',
+      })
+
+      // Click handler — emit to React
+      c.on('pointerdown', () => {
+        this.game.events.emit('agent-clicked', agent.id)
+      })
+
+      this.sprites.set(agent.id, {
+        id: agent.id, container: c, body, hair, nameText, workIndicator,
+        agent, desk, monitor,
+      })
+    })
+  }
+
+  private bodyColor(avatar: AvatarConfig): number {
+    // Use body 0-3 as different outfit colors
+    const colors = [0x3b82f6, 0x10b981, 0xf59e0b, 0xef4444]
+    return colors[avatar.body % colors.length]
+  }
+
+  private rankColor(rank: string): string {
+    const m: Record<string, string> = {
+      '사원': '#cbd5e1', '대리': '#4ade80', '과장': '#3b82f6', '차장': '#a855f7',
+      '부장': '#ef4444', '수석': '#f97316', '대표이사': '#fbbf24', '부회장': '#06b6d4', '회장': '#fde047',
+    }
+    return m[rank] ?? '#ffffff'
+  }
+}

@@ -7,7 +7,7 @@ import type { Agent, Message } from '../types'
 import { ApiKeyModal } from '../components/ApiKeyModal'
 
 export function RightPanel() {
-  const { company, user, agents, messages, setMessages, addMessage } = useStore()
+  const { company, user, agents, messages, setMessages, addMessage, setWorkingAgent } = useStore()
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
   const [respondingAgent, setRespondingAgent] = useState<Agent | null>(null)
@@ -51,6 +51,7 @@ export function RightPanel() {
     setInput('')
     setSending(true)
     setRespondingAgent(agent)
+    setWorkingAgent(agent.id)
 
     // Save user message
     const userMsg: Omit<Message, 'id'> = {
@@ -85,6 +86,7 @@ export function RightPanel() {
     } finally {
       setSending(false)
       setRespondingAgent(null)
+      setWorkingAgent(null)
     }
   }
 
