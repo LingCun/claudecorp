@@ -58,6 +58,7 @@ export class OfficeScene extends Phaser.Scene {
 
   // ── Registry handlers ─────────────────────────
   private handleAgentsChange = (_parent: Phaser.Data.DataManager, _key: string, value: Agent[]) => {
+    console.log('[OfficeScene] handleAgentsChange called with', value?.length ?? 0, 'agents:', value?.map(a => a.name))
     this.renderAgents(value ?? [])
   }
 
@@ -161,8 +162,9 @@ export class OfficeScene extends Phaser.Scene {
 
   // ── Agents ──────────────────────────────────────
   private renderAgents(agents: Agent[]) {
+    console.log('[OfficeScene] renderAgents:', agents.length, 'agents — current sprites:', this.sprites.size)
     // Sort by hire time ASC so desk positions stay stable as new hires are added
-    const sorted = [...agents].sort((a, b) => a.hiredAt - b.hiredAt)
+    const sorted = [...agents].sort((a, b) => (a.hiredAt ?? 0) - (b.hiredAt ?? 0))
     const currentIds = new Set(sorted.map((a) => a.id))
 
     // Remove sprites for agents no longer in the list
@@ -197,14 +199,19 @@ export class OfficeScene extends Phaser.Scene {
   }
 
   private createAgentSprite(agent: Agent, pos: { x: number; y: number }) {
+    console.log('[OfficeScene] createAgentSprite', agent.name, '@desk', pos)
+
     const desk = this.add.rectangle(pos.x, pos.y + 2, TILE * 2, TILE * 0.9, 0x6b4423)
       .setStrokeStyle(2, 0x8b5a2b)
+      .setDepth(10)
     const monitor = this.add.rectangle(pos.x, pos.y - 8, TILE * 0.7, TILE * 0.45, 0x334155)
       .setStrokeStyle(1, 0x475569)
+      .setDepth(11)
 
     const c = this.add.container(pos.x, pos.y + TILE * 1.1)
     c.setSize(24, 36)
     c.setInteractive({ cursor: 'pointer' })
+    c.setDepth(20)
 
     const body = this.add.rectangle(0, 0, 14, 18, this.bodyColor(agent.avatar))
       .setStrokeStyle(1, 0x000000)
@@ -236,29 +243,24 @@ export class OfficeScene extends Phaser.Scene {
       ease: 'Sine.easeInOut',
     })
 
-    // Entry "drop in" — start a bit above the target y, fall down.
-    // Sprite is always at scale 1 / full alpha so if the tween skips for any reason
-    // the character is still visible at its final desk position.
+    // Character is positioned at final desk position immediately — no entry animation.
+    // (Debug: keeping animations off until first-hire bug is resolved.)
     const targetY = pos.y + TILE * 1.1
-    c.setY(targetY - 30)
-    this.tweens.add({
-      targets: c,
-      y: targetY,
-      duration: 360,
-      ease: 'Bounce.easeOut',
-      onComplete: () => {
-        // Start idle bob only after the drop-in finishes so they don't fight
-        const idleTween = this.tweens.add({
-          targets: c,
-          y: targetY - 1,
-          duration: 1400 + Math.random() * 400,
-          yoyo: true,
-          repeat: -1,
-          ease: 'Sine.easeInOut',
-        })
-        const sprite = this.sprites.get(agent.id)
-        if (sprite) sprite.idleTween = idleTween
-      },
+    c.setY(targetY)
+
+    // Defer idle bob to next frame so even brand-new scenes don't drop the tween.
+    this.time.delayedCall(50, () => {
+      if (!this.sprites.has(agent.id)) return
+      const idleTween = this.tweens.add({
+        targets: c,
+        y: targetY - 1,
+        duration: 1400 + Math.random() * 400,
+        yoyo: true,
+        repeat: -1,
+        ease: 'Sine.easeInOut',
+      })
+      const sprite = this.sprites.get(agent.id)
+      if (sprite) sprite.idleTween = idleTween
     })
 
     c.on('pointerdown', () => {
