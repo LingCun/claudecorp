@@ -1,0 +1,49 @@
+@import "tailwindcss";
+
+@theme {
+  --font-display: "Pretendard", "Outfit", "Noto Sans KR", system-ui, sans-serif;
+  --font-pixel: "Galmuri11", "DungGeunMo", monospace;
+
+  --color-corp-bg: oklch(0.18 0.02 250);
+  --color-corp-bg2: oklch(0.22 0.025 250);
+  --color-corp-surface: oklch(0.27 0.03 250);
+  --color-corp-border: oklch(0.35 0.02 250);
+  --color-corp-accent: oklch(0.7 0.18 280);
+  --color-corp-accent2: oklch(0.75 0.16 200);
+  --color-corp-text: oklch(0.95 0.01 250);
+  --color-corp-muted: oklch(0.65 0.02 250);
+
+  --color-rank-staff: oklch(0.75 0.02 250);
+  --color-rank-asso: oklch(0.78 0.18 145);
+  --color-rank-mgr: oklch(0.75 0.16 235);
+  --color-rank-srmgr: oklch(0.72 0.18 305);
+  --color-rank-dir: oklch(0.68 0.22 25);
+  --color-rank-prin: oklch(0.74 0.18 65);
+  --color-rank-ceo: oklch(0.85 0.16 95);
+  --color-rank-vchair: oklch(0.82 0.14 215);
+  --color-rank-chair: oklch(0.88 0.18 90);
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  background: var(--color-corp-bg);
+  color: var(--color-corp-text);
+  font-family: var(--font-display);
+  overflow: hidden;
+}
+
+canvas {
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--color-corp-border);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-corp-muted);
+}
