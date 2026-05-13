@@ -15,6 +15,7 @@ interface AgentSprite {
   agent: Agent
   desk: Phaser.GameObjects.Rectangle
   monitor: Phaser.GameObjects.Rectangle
+  idleTween?: Phaser.Tweens.Tween
 }
 
 const HAIR_COLORS = [0x1a1a1a, 0x6b4423, 0xc9a063, 0xe8d4a8, 0xff6b9d, 0x6fc2ff]
@@ -28,7 +29,6 @@ export class OfficeScene extends Phaser.Scene {
   private deskPositions: Array<{ x: number; y: number }> = []
   private chairmanContainer?: Phaser.GameObjects.Container
   private chairmanInfo?: { displayName: string; photoURL: string }
-  private agentsToRender: Agent[] = []
 
   constructor() {
     super({ key: 'OfficeScene' })
@@ -40,26 +40,35 @@ export class OfficeScene extends Phaser.Scene {
     this.drawWalls()
     this.drawFurniture()
     this.computeDeskPositions()
+
+    // Listen to registry changes (React → Phaser)
+    this.registry.events.on('changedata-agents', this.handleAgentsChange, this)
+    this.registry.events.on('changedata-chairman', this.handleChairmanChange, this)
+    this.registry.events.on('changedata-working', this.handleWorkingChange, this)
+
+    // Pick up any data already present
+    const initialAgents = this.registry.get('agents') as Agent[] | undefined
+    const initialChairman = this.registry.get('chairman') as { displayName: string; photoURL: string } | undefined
+    if (initialChairman) this.chairmanInfo = initialChairman
     this.placeChairman()
-    this.renderAgents()
+    if (initialAgents) this.renderAgents(initialAgents)
   }
 
-  // Called externally from React to update agents
-  updateAgents(agents: Agent[]) {
-    this.agentsToRender = agents
-    if (this.scene.isActive()) this.renderAgents()
+  // ── Registry handlers ─────────────────────────
+  private handleAgentsChange = (_parent: Phaser.Data.DataManager, _key: string, value: Agent[]) => {
+    this.renderAgents(value ?? [])
   }
 
-  updateChairman(info: { displayName: string; photoURL: string }) {
-    this.chairmanInfo = info
-    if (this.scene.isActive()) this.placeChairman()
+  private handleChairmanChange = (_parent: Phaser.Data.DataManager, _key: string, value: { displayName: string; photoURL: string }) => {
+    this.chairmanInfo = value
+    this.placeChairman()
   }
 
-  setWorking(agentId: string | null) {
+  private handleWorkingChange = (_parent: Phaser.Data.DataManager, _key: string, value: string | null) => {
     for (const [id, sprite] of this.sprites) {
-      sprite.workIndicator.setVisible(id === agentId)
-      // Make monitor "glow" when working
-      sprite.monitor.setFillStyle(id === agentId ? 0x4ade80 : 0x334155)
+      const isWorking = id === value
+      sprite.workIndicator.setVisible(isWorking)
+      sprite.monitor.setFillStyle(isWorking ? 0x4ade80 : 0x334155)
     }
   }
 
@@ -78,9 +87,7 @@ export class OfficeScene extends Phaser.Scene {
   private drawWalls() {
     const g = this.add.graphics()
     g.fillStyle(0x3a4254, 1)
-    // Top wall
     g.fillRect(0, 0, FLOOR_W * TILE, TILE)
-    // Window tiles on top wall
     g.fillStyle(0x60a5fa, 0.4)
     for (let x = 2; x < FLOOR_W - 2; x += 4) {
       g.fillRect(x * TILE + 6, 6, TILE - 12, TILE - 12)
@@ -88,11 +95,8 @@ export class OfficeScene extends Phaser.Scene {
   }
 
   private drawFurniture() {
-    // Plants
     this.drawPlant(TILE * 0.5, TILE * 1.5)
     this.drawPlant(TILE * (FLOOR_W - 0.5), TILE * 1.5)
-
-    // Coffee machine area (bottom right corner)
     this.add.rectangle(
       TILE * (FLOOR_W - 2),
       TILE * (FLOOR_H - 1.5),
@@ -114,9 +118,8 @@ export class OfficeScene extends Phaser.Scene {
   }
 
   private computeDeskPositions() {
-    // Grid of desks: 3 rows × 4 cols, leaving room at top/bottom
     this.deskPositions = []
-    const startY = TILE * 3
+    const startY = TILE * 4.6
     const startX = TILE * 2.5
     const gapX = TILE * 4
     const gapY = TILE * 3.5
@@ -134,40 +137,36 @@ export class OfficeScene extends Phaser.Scene {
   private placeChairman() {
     if (this.chairmanContainer) this.chairmanContainer.destroy()
 
-    // Chairman desk in the center back (head position)
     const x = TILE * (FLOOR_W / 2)
     const y = TILE * 2.4
 
-    // Bigger desk for chairman
     this.add.rectangle(x, y + 2, TILE * 2.8, TILE * 1.2, 0x6b4423).setStrokeStyle(2, 0x8b5a2b)
     this.add.rectangle(x, y - 6, TILE * 1.0, TILE * 0.6, 0x1e293b).setStrokeStyle(1, 0x334155)
 
     const c = this.add.container(x, y + TILE * 1.2)
 
-    // Body (purple — chairman color)
     c.add(this.add.rectangle(0, 0, 16, 20, 0x7c3aed).setStrokeStyle(1, 0x4c1d95))
-    // Head
     c.add(this.add.rectangle(0, -14, 14, 14, 0xfbbf24).setStrokeStyle(1, 0x92400e))
-    // Crown
-    const crown = this.add.text(0, -28, '👑', { fontSize: '16px' }).setOrigin(0.5)
-    c.add(crown)
-    // Name label
+    c.add(this.add.text(0, -28, '👑', { fontSize: '16px' }).setOrigin(0.5))
     const name = this.chairmanInfo?.displayName ?? '회장'
-    const label = this.add.text(0, 16, `${name} · 회장`, {
+    c.add(this.add.text(0, 16, `${name} · 회장`, {
       fontSize: '10px', color: '#fde047', fontStyle: 'bold',
       backgroundColor: '#000000aa', padding: { x: 4, y: 1 },
-    }).setOrigin(0.5)
-    c.add(label)
+    }).setOrigin(0.5))
 
     this.chairmanContainer = c
   }
 
   // ── Agents ──────────────────────────────────────
-  private renderAgents() {
+  private renderAgents(agents: Agent[]) {
+    // Sort by hire time ASC so desk positions stay stable as new hires are added
+    const sorted = [...agents].sort((a, b) => a.hiredAt - b.hiredAt)
+    const currentIds = new Set(sorted.map((a) => a.id))
+
     // Remove sprites for agents no longer in the list
-    const currentIds = new Set(this.agentsToRender.map((a) => a.id))
     for (const [id, sprite] of this.sprites) {
       if (!currentIds.has(id)) {
+        sprite.idleTween?.stop()
         sprite.container.destroy()
         sprite.desk.destroy()
         sprite.monitor.destroy()
@@ -175,92 +174,97 @@ export class OfficeScene extends Phaser.Scene {
       }
     }
 
-    // Add/update sprites
-    this.agentsToRender.forEach((agent, idx) => {
+    // Add/update sprites — index in sorted array determines desk
+    sorted.forEach((agent, idx) => {
       const pos = this.deskPositions[idx % this.deskPositions.length]
       if (!pos) return
 
-      let sprite = this.sprites.get(agent.id)
-      if (sprite) {
-        sprite.agent = agent
-        sprite.body.setFillStyle(this.bodyColor(agent.avatar))
-        sprite.hair.setFillStyle(HAIR_COLORS[agent.avatar.hairColor % HAIR_COLORS.length])
-        sprite.nameText.setText(`${agent.name} · ${agent.rank}`)
-        sprite.nameText.setColor(this.rankColor(agent.rank))
+      const existing = this.sprites.get(agent.id)
+      if (existing) {
+        // Update visuals — position should already be stable due to ASC sort
+        existing.agent = agent
+        existing.body.setFillStyle(this.bodyColor(agent.avatar))
+        existing.hair.setFillStyle(HAIR_COLORS[agent.avatar.hairColor % HAIR_COLORS.length])
+        existing.nameText.setText(`${agent.name} · ${agent.rank}`)
+        existing.nameText.setColor(this.rankColor(agent.rank))
         return
       }
 
-      // Desk + monitor
-      const desk = this.add.rectangle(pos.x, pos.y + 2, TILE * 2, TILE * 0.9, 0x6b4423)
-        .setStrokeStyle(2, 0x8b5a2b)
-      const monitor = this.add.rectangle(pos.x, pos.y - 8, TILE * 0.7, TILE * 0.45, 0x334155)
-        .setStrokeStyle(1, 0x475569)
+      this.createAgentSprite(agent, pos)
+    })
+  }
 
-      // Character container (positioned below desk = seated at desk)
-      const c = this.add.container(pos.x, pos.y + TILE * 1.1)
-      c.setSize(24, 36)
-      c.setInteractive({ cursor: 'pointer' })
+  private createAgentSprite(agent: Agent, pos: { x: number; y: number }) {
+    const desk = this.add.rectangle(pos.x, pos.y + 2, TILE * 2, TILE * 0.9, 0x6b4423)
+      .setStrokeStyle(2, 0x8b5a2b)
+    const monitor = this.add.rectangle(pos.x, pos.y - 8, TILE * 0.7, TILE * 0.45, 0x334155)
+      .setStrokeStyle(1, 0x475569)
 
-      // Body
-      const body = this.add.rectangle(0, 0, 14, 18, this.bodyColor(agent.avatar))
-        .setStrokeStyle(1, 0x000000)
-      c.add(body)
+    const c = this.add.container(pos.x, pos.y + TILE * 1.1)
+    c.setSize(24, 36)
+    c.setInteractive({ cursor: 'pointer' })
 
-      // Head
-      c.add(this.add.rectangle(0, -12, 12, 12, 0xfde9c8).setStrokeStyle(1, 0x000000))
+    const body = this.add.rectangle(0, 0, 14, 18, this.bodyColor(agent.avatar))
+      .setStrokeStyle(1, 0x000000)
+    c.add(body)
 
-      // Hair
-      const hair = this.add.rectangle(0, -16, 14, 6, HAIR_COLORS[agent.avatar.hairColor % HAIR_COLORS.length])
-      c.add(hair)
+    c.add(this.add.rectangle(0, -12, 12, 12, 0xfde9c8).setStrokeStyle(1, 0x000000))
 
-      // Rank badge dot
-      c.add(this.add.circle(7, -3, 2, RANK_BADGE_COLOR[agent.rank] ?? 0xffffff))
+    const hair = this.add.rectangle(0, -16, 14, 6, HAIR_COLORS[agent.avatar.hairColor % HAIR_COLORS.length])
+    c.add(hair)
 
-      // Name label
-      const nameText = this.add.text(0, 14, `${agent.name} · ${agent.rank}`, {
-        fontSize: '9px', color: this.rankColor(agent.rank),
-        backgroundColor: '#000000aa', padding: { x: 3, y: 1 },
-      }).setOrigin(0.5)
-      c.add(nameText)
+    c.add(this.add.circle(7, -3, 2, RANK_BADGE_COLOR[agent.rank] ?? 0xffffff))
 
-      // Work indicator (floating ✦ above head)
-      const workIndicator = this.add.text(0, -32, '✦', {
-        fontSize: '14px', color: '#fde047',
-      }).setOrigin(0.5).setVisible(false)
-      c.add(workIndicator)
-      this.tweens.add({
-        targets: workIndicator,
-        y: -36,
-        duration: 800,
-        yoyo: true,
-        repeat: -1,
-        ease: 'Sine.easeInOut',
-      })
+    const nameText = this.add.text(0, 14, `${agent.name} · ${agent.rank}`, {
+      fontSize: '9px', color: this.rankColor(agent.rank),
+      backgroundColor: '#000000aa', padding: { x: 3, y: 1 },
+    }).setOrigin(0.5)
+    c.add(nameText)
 
-      // Idle bob
-      this.tweens.add({
-        targets: c,
-        y: pos.y + TILE * 1.1 - 1,
-        duration: 1400 + Math.random() * 400,
-        yoyo: true,
-        repeat: -1,
-        ease: 'Sine.easeInOut',
-      })
+    const workIndicator = this.add.text(0, -32, '✦', {
+      fontSize: '14px', color: '#fde047',
+    }).setOrigin(0.5).setVisible(false)
+    c.add(workIndicator)
+    this.tweens.add({
+      targets: workIndicator,
+      y: -36,
+      duration: 800,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.easeInOut',
+    })
 
-      // Click handler — emit to React
-      c.on('pointerdown', () => {
-        this.game.events.emit('agent-clicked', agent.id)
-      })
+    // Spawn animation: pop in from above
+    c.setScale(0)
+    this.tweens.add({
+      targets: c,
+      scale: 1,
+      duration: 320,
+      ease: 'Back.easeOut',
+    })
 
-      this.sprites.set(agent.id, {
-        id: agent.id, container: c, body, hair, nameText, workIndicator,
-        agent, desk, monitor,
-      })
+    // Idle bob
+    const idleTween = this.tweens.add({
+      targets: c,
+      y: pos.y + TILE * 1.1 - 1,
+      duration: 1400 + Math.random() * 400,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.easeInOut',
+      delay: 400,
+    })
+
+    c.on('pointerdown', () => {
+      this.game.events.emit('agent-clicked', agent.id)
+    })
+
+    this.sprites.set(agent.id, {
+      id: agent.id, container: c, body, hair, nameText, workIndicator,
+      agent, desk, monitor, idleTween,
     })
   }
 
   private bodyColor(avatar: AvatarConfig): number {
-    // Use body 0-3 as different outfit colors
     const colors = [0x3b82f6, 0x10b981, 0xf59e0b, 0xef4444]
     return colors[avatar.body % colors.length]
   }

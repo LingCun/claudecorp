@@ -3,8 +3,6 @@ import Phaser from 'phaser'
 import { OfficeScene } from './OfficeScene'
 import { useStore } from '../store/useStore'
 
-const SCENE_KEY = 'OfficeScene'
-
 export function PhaserGame() {
   const ref = useRef<HTMLDivElement>(null)
   const gameRef = useRef<Phaser.Game | null>(null)
@@ -29,6 +27,14 @@ export function PhaserGame() {
       scene: [OfficeScene],
     })
 
+    // Seed initial registry data so scene's create() can read it immediately
+    const state = useStore.getState()
+    game.registry.set('agents', state.agents)
+    if (state.user) {
+      game.registry.set('chairman', { displayName: state.user.displayName, photoURL: state.user.photoURL })
+    }
+    game.registry.set('working', state.workingAgentId)
+
     game.events.on('agent-clicked', (id: string) => {
       selectAgent(id)
     })
@@ -42,40 +48,20 @@ export function PhaserGame() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Sync agents to scene
+  // Sync agents via registry — triggers 'changedata-agents' in scene
   useEffect(() => {
-    const scene = gameRef.current?.scene.getScene(SCENE_KEY) as OfficeScene | undefined
-    if (scene?.scene?.isActive()) {
-      scene.updateAgents(agents)
-    } else {
-      // Scene not ready yet — try again shortly
-      const t = setTimeout(() => {
-        const s = gameRef.current?.scene.getScene(SCENE_KEY) as OfficeScene | undefined
-        s?.updateAgents(agents)
-      }, 100)
-      return () => clearTimeout(t)
-    }
+    gameRef.current?.registry.set('agents', agents)
   }, [agents])
 
   // Sync chairman
   useEffect(() => {
     if (!user) return
-    const scene = gameRef.current?.scene.getScene(SCENE_KEY) as OfficeScene | undefined
-    if (scene?.scene?.isActive()) {
-      scene.updateChairman({ displayName: user.displayName, photoURL: user.photoURL })
-    } else {
-      const t = setTimeout(() => {
-        const s = gameRef.current?.scene.getScene(SCENE_KEY) as OfficeScene | undefined
-        s?.updateChairman({ displayName: user.displayName, photoURL: user.photoURL })
-      }, 100)
-      return () => clearTimeout(t)
-    }
+    gameRef.current?.registry.set('chairman', { displayName: user.displayName, photoURL: user.photoURL })
   }, [user])
 
   // Sync working state
   useEffect(() => {
-    const scene = gameRef.current?.scene.getScene(SCENE_KEY) as OfficeScene | undefined
-    scene?.setWorking(workingAgentId)
+    gameRef.current?.registry.set('working', workingAgentId)
   }, [workingAgentId])
 
   return <div ref={ref} className="w-full h-full" />
