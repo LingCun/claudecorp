@@ -1,14 +1,21 @@
 import { useStore } from '../store/useStore'
 import { ROLE_ICON } from '../types'
+import { signOut } from '../firebase/auth'
 
-export function LeftPanel() {
-  const { agents, selectedAgentId, selectAgent } = useStore()
+interface Props {
+  onHireClick: () => void
+}
+
+export function LeftPanel({ onHireClick }: Props) {
+  const { agents, selectedAgentId, selectAgent, company, user } = useStore()
 
   return (
     <div className="flex flex-col h-full">
       <header className="px-4 py-4 border-b border-corp-border">
         <h1 className="text-lg font-bold tracking-tight">ClaudeCorp</h1>
-        <p className="text-xs text-corp-muted mt-0.5">회장님의 회사 · Free</p>
+        <p className="text-xs text-corp-muted mt-0.5">
+          {company?.name ?? '회사'} · {company?.plan === 'pro' ? 'Pro' : 'Free'}
+        </p>
       </header>
 
       <div className="px-3 py-3 border-b border-corp-border">
@@ -66,10 +73,37 @@ export function LeftPanel() {
         )}
       </div>
 
-      <footer className="p-3 border-t border-corp-border">
-        <button className="w-full py-2 rounded-md bg-corp-accent hover:opacity-90 transition-opacity text-sm font-medium">
+      <footer className="border-t border-corp-border">
+        <button
+          onClick={onHireClick}
+          className="w-full py-3 bg-corp-accent hover:opacity-90 transition-opacity text-sm font-medium"
+        >
           + 새 직원 채용
         </button>
+        {user && (
+          <div className="flex items-center gap-2 px-3 py-2.5 border-t border-corp-border bg-corp-bg/40">
+            {user.photoURL ? (
+              <img src={user.photoURL} alt="" className="w-7 h-7 rounded-full" />
+            ) : (
+              <div className="w-7 h-7 rounded-full bg-corp-accent flex items-center justify-center text-xs">👑</div>
+            )}
+            <div className="flex-1 min-w-0">
+              <div className="text-xs font-medium truncate">{user.displayName}</div>
+              <div className="text-[10px] text-corp-muted">회장</div>
+            </div>
+            <button
+              onClick={() => signOut()}
+              title="로그아웃"
+              className="p-1.5 rounded hover:bg-corp-surface transition text-corp-muted hover:text-red-400"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                <polyline points="16 17 21 12 16 7" />
+                <line x1="21" y1="12" x2="9" y2="12" />
+              </svg>
+            </button>
+          </div>
+        )}
       </footer>
     </div>
   )
