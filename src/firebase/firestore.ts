@@ -1,9 +1,9 @@
 import {
-  collection, doc, getDoc, getDocs, addDoc, deleteDoc,
+  collection, doc, getDoc, getDocs, addDoc, deleteDoc, updateDoc,
   onSnapshot, query, where, orderBy,
 } from 'firebase/firestore'
 import { db } from './config'
-import type { Agent, Company, Message, Rank, Role } from '../types'
+import type { Agent, Company, Message, Rank, Role, MBTI } from '../types'
 
 // ─── Company ───────────────────────────────────────
 export async function getCompanyForUser(uid: string): Promise<Company | null> {
@@ -40,13 +40,14 @@ export function watchAgents(companyId: string, cb: (agents: Agent[]) => void) {
 
 export async function hireAgent(
   companyId: string,
-  data: { name: string; rank: Rank; role: Role; description: string },
+  data: { name: string; rank: Rank; role: Role; description: string; mbti?: MBTI },
 ): Promise<Agent> {
   const newAgent: Omit<Agent, 'id'> = {
     name: data.name,
     rank: data.rank,
     role: data.role,
     description: data.description,
+    ...(data.mbti ? { mbti: data.mbti } : {}),
     avatar: {
       body: Math.floor(Math.random() * 4),
       hair: Math.floor(Math.random() * 10),
@@ -61,6 +62,14 @@ export async function hireAgent(
   }
   const ref = await addDoc(collection(db, 'companies', companyId, 'agents'), newAgent)
   return { id: ref.id, ...newAgent }
+}
+
+export async function updateAgent(
+  companyId: string,
+  agentId: string,
+  changes: Partial<Pick<Agent, 'name' | 'rank' | 'role' | 'description' | 'mbti'>>,
+) {
+  await updateDoc(doc(db, 'companies', companyId, 'agents', agentId), changes)
 }
 
 export async function fireAgent(companyId: string, agentId: string) {

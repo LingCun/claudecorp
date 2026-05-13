@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk'
 import type { Agent, Message } from '../types'
+import { MBTI_MAP } from '../types/mbti'
 
 const API_KEY_STORAGE = 'claudecorp_anthropic_key'
 const MODEL = 'claude-sonnet-4-6'
@@ -48,11 +49,15 @@ export function pickAgent(agents: Agent[], explicitId?: string): Agent | null {
 }
 
 function buildSystemPrompt(agent: Agent, chairmanName: string): string {
+  const mbtiBlock = agent.mbti
+    ? `\n▼ MBTI: ${agent.mbti} (${MBTI_MAP[agent.mbti].name})\n${MBTI_MAP[agent.mbti].desc}\n이 성격이 자연스럽게 답변에 묻어나게 하세요 (과장하지 말고 어조와 강조점에 반영).`
+    : ''
+
   return `당신은 ClaudeCorp 회사의 ${agent.rank} ${agent.role}, ${agent.name}입니다.
 당신의 회장(사용자)은 ${chairmanName}입니다.
 
 ▼ 직무 / 성격 (회장이 작성)
-${agent.description}
+${agent.description}${mbtiBlock}
 
 ▼ 답변 규칙
 - 회장에게 답변할 때는 격식 있게 ("회장님" 호칭) 답합니다.

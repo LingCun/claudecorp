@@ -1,5 +1,6 @@
 import Phaser from 'phaser'
 import type { Agent, AvatarConfig } from '../types'
+import { randomSelfTalk } from '../types/mbti'
 
 const TILE = 32
 const FLOOR_W = 20
@@ -16,6 +17,7 @@ interface AgentSprite {
   desk: Phaser.GameObjects.Rectangle
   monitor: Phaser.GameObjects.Rectangle
   idleTween?: Phaser.Tweens.Tween
+  bubble?: Phaser.GameObjects.Container
 }
 
 const HAIR_COLORS = [0x1a1a1a, 0x6b4423, 0xc9a063, 0xe8d4a8, 0xff6b9d, 0x6fc2ff]
@@ -256,11 +258,76 @@ export class OfficeScene extends Phaser.Scene {
 
     c.on('pointerdown', () => {
       this.game.events.emit('agent-clicked', agent.id)
+      const sprite = this.sprites.get(agent.id)
+      if (sprite) this.showSpeechBubble(sprite, randomSelfTalk(sprite.agent.mbti))
     })
 
     this.sprites.set(agent.id, {
       id: agent.id, container: c, body, hair, nameText, workIndicator,
       agent, desk, monitor, idleTween,
+    })
+  }
+
+  private showSpeechBubble(sprite: AgentSprite, text: string) {
+    // Remove existing bubble for this sprite
+    if (sprite.bubble) {
+      sprite.bubble.destroy()
+      sprite.bubble = undefined
+    }
+
+    const bubble = this.add.container(0, -38)
+
+    // Truncate very long text
+    const display = text.length > 28 ? text.slice(0, 26) + '…' : text
+
+    const txt = this.add.text(0, 0, display, {
+      fontSize: '10px',
+      color: '#1a1a1a',
+      padding: { x: 8, y: 5 },
+      align: 'center',
+    }).setOrigin(0.5)
+
+    const w = Math.max(70, txt.width + 16)
+    const h = txt.height + 6
+    const bg = this.add.graphics()
+    bg.fillStyle(0xffffff, 0.96)
+    bg.lineStyle(2, 0xfde047, 1)
+    bg.fillRoundedRect(-w / 2, -h / 2, w, h, 6)
+    bg.strokeRoundedRect(-w / 2, -h / 2, w, h, 6)
+    // Tail
+    bg.fillStyle(0xffffff, 0.96)
+    bg.beginPath()
+    bg.moveTo(-4, h / 2)
+    bg.lineTo(0, h / 2 + 5)
+    bg.lineTo(4, h / 2)
+    bg.closePath()
+    bg.fillPath()
+
+    bubble.add([bg, txt])
+    sprite.container.add(bubble)
+    sprite.bubble = bubble
+
+    bubble.setAlpha(0).setScale(0.85)
+    this.tweens.add({
+      targets: bubble,
+      alpha: 1,
+      scale: 1,
+      duration: 180,
+      ease: 'Back.easeOut',
+    })
+
+    // Auto-fade after delay
+    this.time.delayedCall(2400, () => {
+      if (sprite.bubble !== bubble) return
+      this.tweens.add({
+        targets: bubble,
+        alpha: 0,
+        duration: 220,
+        onComplete: () => {
+          bubble.destroy()
+          if (sprite.bubble === bubble) sprite.bubble = undefined
+        },
+      })
     })
   }
 

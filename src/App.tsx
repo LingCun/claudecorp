@@ -3,17 +3,18 @@ import { LeftPanel } from './panels/LeftPanel'
 import { CenterPanel } from './panels/CenterPanel'
 import { RightPanel } from './panels/RightPanel'
 import { LoginScreen } from './components/LoginScreen'
-import { HireModal } from './components/HireModal'
+import { AgentFormModal } from './components/AgentFormModal'
 import { onAuth } from './firebase/auth'
 import { createCompany, getCompanyForUser, watchAgents } from './firebase/firestore'
 import { useStore } from './store/useStore'
+import type { Agent } from './types'
 
 function App() {
   const { user, company, setUser, setCompany, setAgents } = useStore()
   const [loading, setLoading] = useState(true)
   const [showHire, setShowHire] = useState(false)
+  const [editingAgent, setEditingAgent] = useState<Agent | null>(null)
 
-  // Auth state
   useEffect(() => {
     return onAuth(async (fbUser) => {
       if (fbUser) {
@@ -36,7 +37,6 @@ function App() {
     })
   }, [setUser, setCompany, setAgents])
 
-  // Watch agents when company is set
   useEffect(() => {
     if (!company) return
     return watchAgents(company.id, setAgents)
@@ -52,6 +52,8 @@ function App() {
 
   if (!user || !company) return <LoginScreen />
 
+  const modalOpen = showHire || !!editingAgent
+
   return (
     <>
       <div className="flex h-screen w-screen bg-corp-bg text-corp-text">
@@ -59,13 +61,18 @@ function App() {
           <LeftPanel onHireClick={() => setShowHire(true)} />
         </aside>
         <main className="flex-1 min-w-0 relative overflow-hidden">
-          <CenterPanel />
+          <CenterPanel onEditAgent={setEditingAgent} />
         </main>
         <aside className="w-[400px] shrink-0 border-l border-corp-border bg-corp-bg2">
           <RightPanel />
         </aside>
       </div>
-      {showHire && <HireModal onClose={() => setShowHire(false)} />}
+      {modalOpen && (
+        <AgentFormModal
+          agent={editingAgent}
+          onClose={() => { setShowHire(false); setEditingAgent(null) }}
+        />
+      )}
     </>
   )
 }

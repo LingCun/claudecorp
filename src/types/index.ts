@@ -23,6 +23,9 @@ export type Role =
 
 export type AgentStatus = 'idle' | 'working' | 'resting' | 'meeting'
 
+export type { MBTI, MbtiInfo } from './mbti'
+export { MBTI_LIST, MBTI_MAP, randomSelfTalk } from './mbti'
+
 export interface AvatarConfig {
   body: number
   hair: number
@@ -36,6 +39,7 @@ export interface Agent {
   rank: Rank
   role: Role
   description: string
+  mbti?: import('./mbti').MBTI
   avatar: AvatarConfig
   status: AgentStatus
   position: { x: number; y: number }
