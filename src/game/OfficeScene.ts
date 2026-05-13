@@ -236,24 +236,29 @@ export class OfficeScene extends Phaser.Scene {
       ease: 'Sine.easeInOut',
     })
 
-    // Spawn animation: pop in from above
-    c.setScale(0)
+    // Entry "drop in" — start a bit above the target y, fall down.
+    // Sprite is always at scale 1 / full alpha so if the tween skips for any reason
+    // the character is still visible at its final desk position.
+    const targetY = pos.y + TILE * 1.1
+    c.setY(targetY - 30)
     this.tweens.add({
       targets: c,
-      scale: 1,
-      duration: 320,
-      ease: 'Back.easeOut',
-    })
-
-    // Idle bob
-    const idleTween = this.tweens.add({
-      targets: c,
-      y: pos.y + TILE * 1.1 - 1,
-      duration: 1400 + Math.random() * 400,
-      yoyo: true,
-      repeat: -1,
-      ease: 'Sine.easeInOut',
-      delay: 400,
+      y: targetY,
+      duration: 360,
+      ease: 'Bounce.easeOut',
+      onComplete: () => {
+        // Start idle bob only after the drop-in finishes so they don't fight
+        const idleTween = this.tweens.add({
+          targets: c,
+          y: targetY - 1,
+          duration: 1400 + Math.random() * 400,
+          yoyo: true,
+          repeat: -1,
+          ease: 'Sine.easeInOut',
+        })
+        const sprite = this.sprites.get(agent.id)
+        if (sprite) sprite.idleTween = idleTween
+      },
     })
 
     c.on('pointerdown', () => {
@@ -264,7 +269,7 @@ export class OfficeScene extends Phaser.Scene {
 
     this.sprites.set(agent.id, {
       id: agent.id, container: c, body, hair, nameText, workIndicator,
-      agent, desk, monitor, idleTween,
+      agent, desk, monitor,
     })
   }
 
