@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useStore } from '../store/useStore'
-import { chat, hasApiKey, pickAgent } from '../ai/chat'
+import { hasApiKey, pickEntryAgent, runDelegationChain } from '../ai/chat'
 import { ensureConversation, sendMessage, watchMessages } from '../firebase/firestore'
 import { ROLE_ICON } from '../types'
 import type { Agent, Message } from '../types'
@@ -15,7 +15,6 @@ export function RightPanel() {
   const [showApiKey, setShowApiKey] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
 
-  // Ensure conversation + subscribe to messages
   useEffect(() => {
     if (!company) return
     let unsubMsgs: (() => void) | undefined
@@ -26,7 +25,6 @@ export function RightPanel() {
     return () => unsubMsgs?.()
   }, [company, setMessages])
 
-  // Auto-scroll
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
   }, [messages, respondingAgent])
@@ -45,42 +43,60 @@ export function RightPanel() {
       return
     }
 
-    const agent = pickAgent(agents)
-    if (!agent) return
+    const entry = pickEntryAgent(agents)
+    if (!entry) return
 
     setInput('')
     setSending(true)
-    setRespondingAgent(agent)
-    setWorkingAgent(agent.id)
 
-    // Save user message
-    const userMsg: Omit<Message, 'id'> = {
-      role: 'user',
-      content: text,
-      createdAt: Date.now(),
-    }
+    // Save user message first
     try {
-      await sendMessage(company.id, convId, userMsg)
+      await sendMessage(company.id, convId, {
+        role: 'user',
+        content: text,
+        createdAt: Date.now(),
+      })
     } catch (err) {
       console.error('user message save failed', err)
     }
 
-    // Call Claude
+    // Run delegation chain
     try {
-      const reply = await chat(agent, user.displayName, messages, text)
-      await sendMessage(company.id, convId, {
-        role: 'agent',
-        content: reply,
-        agentId: agent.id,
-        createdAt: Date.now(),
-      })
+      await runDelegationChain(
+        entry,
+        user.displayName,
+        agents,
+        messages,
+        text,
+        async (event) => {
+          if (event.type === 'working' && event.workingAgent) {
+            setRespondingAgent(event.workingAgent)
+            setWorkingAgent(event.workingAgent.id)
+          } else if (event.type === 'delegation' && event.step) {
+            await sendMessage(company.id, convId, {
+              role: 'delegation',
+              content: event.step.instruction,
+              agentId: event.step.fromAgent.id,
+              toAgentId: event.step.toAgent.id,
+              createdAt: Date.now(),
+            })
+          } else if (event.type === 'final' && event.final) {
+            await sendMessage(company.id, convId, {
+              role: 'agent',
+              content: event.final.content,
+              agentId: event.final.agent.id,
+              createdAt: Date.now(),
+            })
+          }
+        },
+      )
     } catch (err) {
       const errMsg = (err as Error).message ?? String(err)
       addMessage({
         id: crypto.randomUUID(),
         role: 'agent',
         content: `⚠️ 응답 실패: ${errMsg}`,
-        agentId: agent.id,
+        agentId: entry.id,
         createdAt: Date.now(),
       })
     } finally {
@@ -100,7 +116,7 @@ export function RightPanel() {
             <h2 className="text-base font-semibold">💬 Chat</h2>
             <p className="text-xs text-corp-muted mt-0.5">
               {respondingAgent
-                ? `${respondingAgent.name} ${respondingAgent.rank}이(가) 답변 중...`
+                ? `${respondingAgent.name} ${respondingAgent.rank}이(가) 응답 중...`
                 : agents.length === 0
                 ? '직원을 먼저 채용하세요'
                 : `${agents.length}명 대기 중`}
@@ -126,32 +142,7 @@ export function RightPanel() {
               <div className="text-xs mt-1">예: "결제 시스템 어떻게 만들까요?"</div>
             </div>
           ) : (
-            messages.map((m) => {
-              const ag = m.role === 'agent' ? findAgent(m.agentId) : null
-              return (
-                <div key={m.id} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                  <div className={`max-w-[85%] ${m.role === 'user' ? '' : 'space-y-1'}`}>
-                    {ag && (
-                      <div className="text-[11px] text-corp-muted flex items-center gap-1.5 px-1">
-                        <span>{ROLE_ICON[ag.role]}</span>
-                        <span className="font-medium">{ag.name}</span>
-                        <span>·</span>
-                        <span>{ag.rank}</span>
-                      </div>
-                    )}
-                    <div
-                      className={`px-3 py-2 rounded-lg text-sm leading-relaxed whitespace-pre-wrap ${
-                        m.role === 'user'
-                          ? 'bg-corp-accent text-white'
-                          : 'bg-corp-surface'
-                      }`}
-                    >
-                      {m.content}
-                    </div>
-                  </div>
-                </div>
-              )
-            })
+            messages.map((m) => <MessageBubble key={m.id} m={m} findAgent={findAgent} />)
           )}
           {respondingAgent && (
             <div className="flex justify-start">
@@ -194,5 +185,62 @@ export function RightPanel() {
 
       {showApiKey && <ApiKeyModal onClose={() => setShowApiKey(false)} required={!hasApiKey()} />}
     </>
+  )
+}
+
+function MessageBubble({ m, findAgent }: { m: Message; findAgent: (id?: string) => Agent | undefined }) {
+  if (m.role === 'user') {
+    return (
+      <div className="flex justify-end">
+        <div className="max-w-[85%] px-3 py-2 rounded-lg text-sm leading-relaxed whitespace-pre-wrap bg-corp-accent text-white">
+          {m.content}
+        </div>
+      </div>
+    )
+  }
+
+  if (m.role === 'delegation') {
+    const from = findAgent(m.agentId)
+    const to = findAgent(m.toAgentId)
+    return (
+      <div className="flex justify-start">
+        <div className="max-w-[90%] flex items-start gap-2 px-3 py-2 rounded-md bg-corp-bg/60 border border-corp-border/60">
+          <span className="text-[11px] mt-0.5">📩</span>
+          <div className="flex-1 min-w-0 space-y-1">
+            <div className="text-[11px] text-corp-muted flex items-center gap-1 flex-wrap">
+              <span className="font-medium text-corp-text">{from?.name ?? '?'}</span>
+              <span>{from?.rank}</span>
+              <span className="text-corp-accent2">→</span>
+              <span className="font-medium text-corp-text">{to?.name ?? '?'}</span>
+              <span>{to?.rank}</span>
+              <span className="text-corp-muted">에게 위임</span>
+            </div>
+            <div className="text-xs text-corp-muted leading-relaxed whitespace-pre-wrap">
+              {m.content}
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // agent message
+  const ag = findAgent(m.agentId)
+  return (
+    <div className="flex justify-start">
+      <div className="max-w-[85%] space-y-1">
+        {ag && (
+          <div className="text-[11px] text-corp-muted flex items-center gap-1.5 px-1">
+            <span>{ROLE_ICON[ag.role]}</span>
+            <span className="font-medium">{ag.name}</span>
+            <span>·</span>
+            <span>{ag.rank}</span>
+          </div>
+        )}
+        <div className="px-3 py-2 rounded-lg text-sm leading-relaxed whitespace-pre-wrap bg-corp-surface">
+          {m.content}
+        </div>
+      </div>
+    </div>
   )
 }

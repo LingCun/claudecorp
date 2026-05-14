@@ -61,9 +61,10 @@ export interface Company {
 
 export interface Message {
   id: string
-  role: 'user' | 'agent'
+  role: 'user' | 'agent' | 'delegation'
   content: string
-  agentId?: string
+  agentId?: string         // who spoke / who delegated
+  toAgentId?: string       // for delegation: target agent
   createdAt: number
 }
 
