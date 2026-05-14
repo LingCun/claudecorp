@@ -83,6 +83,7 @@ export class OfficeScene extends Phaser.Scene {
   private sprites = new Map<string, AgentSprite>()
   private deskPositions: Array<{ x: number; y: number }> = []
   private chairmanContainer?: Phaser.GameObjects.Container
+  private chairmanFurniture: Phaser.GameObjects.GameObject[] = []
   private chairmanInfo?: { displayName: string; photoURL: string }
   private workingAgentId: string | null = null
 
@@ -357,28 +358,150 @@ export class OfficeScene extends Phaser.Scene {
   // ── Chairman ────────────────────────────────────
   private placeChairman() {
     if (this.chairmanContainer) this.chairmanContainer.destroy()
+    for (const f of this.chairmanFurniture) f.destroy()
+    this.chairmanFurniture = []
 
-    // Chairman has their own special desk at the top of the office area
     const officeZone = ZONES.find((z) => z.activity === 'desk')!
     const x = officeZone.rect.centerX
-    const y = officeZone.rect.y + TILE * 1
+    const y = officeZone.rect.y + TILE * 1.2
 
-    this.add.rectangle(x, y + 2, TILE * 3, TILE * 1.4, 0x6b4423).setStrokeStyle(2, 0x8b5a2b).setDepth(10)
-    this.add.rectangle(x, y - 8, TILE * 1.0, TILE * 0.6, 0x1e293b).setStrokeStyle(1, 0x334155).setDepth(11)
+    const PURPLE = 0x6d28d9
+    const PURPLE_DARK = 0x4c1d95
+    const GOLD = 0xfbbf24
+    const GOLD_DARK = 0x92400e
+    const RUBY = 0xef4444
 
+    // ── Fancy CEO desk (wider, dark wood with gold trim) ──
+    const desk = this.add.rectangle(x, y + 8, TILE * 4, TILE * 1.5, 0x3d1f08)
+      .setStrokeStyle(3, GOLD).setDepth(10)
+    const deskTop = this.add.rectangle(x, y + 4, TILE * 4 - 4, 4, 0x5a3a1c).setDepth(10.5)
+    // Gold corner pillars on desk
+    const leftPillar = this.add.rectangle(x - TILE * 2 + 2, y + 8, 4, TILE * 1.5 - 4, GOLD).setDepth(11)
+    const rightPillar = this.add.rectangle(x + TILE * 2 - 2, y + 8, 4, TILE * 1.5 - 4, GOLD).setDepth(11)
+    this.chairmanFurniture.push(desk, deskTop, leftPillar, rightPillar)
+
+    // ── Two monitors (chairman has dual setup) ──
+    for (const mx of [-TILE * 0.85, TILE * 0.85]) {
+      const stand = this.add.rectangle(x + mx, y - 1, 3, 5, 0x475569).setDepth(10.7)
+      const base = this.add.rectangle(x + mx, y - 4, 10, 1.5, 0x475569).setDepth(10.7)
+      const mon = this.add.rectangle(x + mx, y - 11, TILE * 0.8, TILE * 0.55, 0x0f172a)
+        .setStrokeStyle(2, GOLD).setDepth(11)
+      const screen = this.add.rectangle(x + mx, y - 11, TILE * 0.8 - 4, TILE * 0.55 - 4, 0x1e293b).setDepth(11.5)
+      this.chairmanFurniture.push(stand, base, mon, screen)
+    }
+
+    // ── Throne (high-back royal chair behind character) ──
+    // Throne base (seat)
+    const throneSeat = this.add.rectangle(x, y + TILE * 1.5, 24, 22, PURPLE_DARK)
+      .setStrokeStyle(2, GOLD).setDepth(15)
+    // Throne high back
+    const throneBack = this.add.rectangle(x, y + TILE * 0.9, 26, 18, PURPLE)
+      .setStrokeStyle(2, GOLD).setDepth(14)
+    // Throne back crest (small gold triangle at top)
+    const throneCrest = this.add.triangle(x, y + TILE * 0.45, -6, 4, 6, 4, 0, -4, GOLD)
+      .setStrokeStyle(1, GOLD_DARK).setDepth(14.5)
+    // Throne back jewel
+    const throneJewel = this.add.circle(x, y + TILE * 0.85, 2, RUBY)
+      .setStrokeStyle(0.5, GOLD).setDepth(14.5)
+    this.chairmanFurniture.push(throneSeat, throneBack, throneCrest, throneJewel)
+
+    // Subtle aura/glow on the floor under chairman
+    const aura = this.add.ellipse(x, y + TILE * 1.6, 50, 14, GOLD, 0.15).setDepth(9)
+    this.chairmanFurniture.push(aura)
+    this.tweens.add({
+      targets: aura,
+      scaleX: 1.15, scaleY: 1.15, alpha: 0.25,
+      duration: 1600, yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
+    })
+
+    // ── Character (chibi, royal version) ──
     const c = this.add.container(x, y + TILE * 1.2).setDepth(20)
-    c.add(this.add.rectangle(0, 0, 18, 22, 0x7c3aed).setStrokeStyle(1, 0x4c1d95))
-    c.add(this.add.rectangle(0, -14, 14, 14, 0xfbbf24).setStrokeStyle(1, 0x92400e))
-    c.add(this.add.text(0, -28, '👑', { fontSize: '16px' }).setOrigin(0.5))
-    c.add(this.add.rectangle(-3, -14, 1.5, 2, 0x000000))
-    c.add(this.add.rectangle(3, -14, 1.5, 2, 0x000000))
+
+    const skin = 0xffe4cf
+
+    // Cape (drawn first → behind body)
+    c.add(this.add.rectangle(0, 10, 26, 18, PURPLE).setStrokeStyle(1, GOLD))
+    c.add(this.add.rectangle(0, 17, 22, 4, GOLD, 0.7))  // cape gold trim
+
+    // Pants
+    c.add(this.add.rectangle(0, 12, 11, 6, 0x1e293b))
+
+    // Royal robe / body
+    c.add(this.add.rectangle(0, 4, 18, 14, PURPLE).setStrokeStyle(1, GOLD))
+    // Robe lapels (gold V)
+    c.add(this.add.triangle(0, 4, -6, -2, 6, -2, 0, 8, GOLD, 0.6))
+    // Gold buttons down the front
+    c.add(this.add.circle(0, 0, 1.2, GOLD).setStrokeStyle(0.3, GOLD_DARK))
+    c.add(this.add.circle(0, 4, 1.2, GOLD).setStrokeStyle(0.3, GOLD_DARK))
+    c.add(this.add.circle(0, 8, 1.2, GOLD).setStrokeStyle(0.3, GOLD_DARK))
+
+    // Arms (royal sleeves with gold cuffs)
+    c.add(this.add.rectangle(-10, 4, 3, 10, PURPLE).setStrokeStyle(1, GOLD))
+    c.add(this.add.rectangle(10, 4, 3, 10, PURPLE).setStrokeStyle(1, GOLD))
+    c.add(this.add.rectangle(-10, 8, 4, 1.5, GOLD))  // left cuff
+    c.add(this.add.rectangle(10, 8, 4, 1.5, GOLD))   // right cuff
+
+    // Hands
+    c.add(this.add.rectangle(-10, 11, 3, 3, skin))
+    c.add(this.add.rectangle(10, 11, 3, 3, skin))
+
+    // Neck
+    c.add(this.add.rectangle(0, -4, 5, 3, skin))
+
+    // Royal pendant on chest
+    c.add(this.add.circle(0, 2, 2, RUBY).setStrokeStyle(0.5, GOLD))
+
+    // Head
+    c.add(this.add.rectangle(0, -11, 13, 13, skin).setStrokeStyle(1, 0x000000aa))
+
+    // Hair (regal dark hair, slightly styled)
+    c.add(this.add.rectangle(0, -17, 14, 5, 0x4a3422))
+    c.add(this.add.rectangle(-6, -14, 3, 4, 0x4a3422))
+    c.add(this.add.rectangle(6, -14, 3, 4, 0x4a3422))
+
+    // ── Crown (pixel-art, not emoji) ──
+    // Crown band
+    c.add(this.add.rectangle(0, -20, 14, 2.5, GOLD).setStrokeStyle(0.5, GOLD_DARK))
+    // Three spikes
+    c.add(this.add.triangle(-5, -23, -2, -22, 2, -22, 0, -25, GOLD).setStrokeStyle(0.4, GOLD_DARK))
+    c.add(this.add.triangle(0, -24, -2, -22, 2, -22, 0, -26, GOLD).setStrokeStyle(0.4, GOLD_DARK))
+    c.add(this.add.triangle(5, -23, -2, -22, 2, -22, 0, -25, GOLD).setStrokeStyle(0.4, GOLD_DARK))
+    // Jewels on crown
+    c.add(this.add.circle(0, -22.5, 0.9, RUBY))
+    c.add(this.add.circle(-4, -22.5, 0.7, 0x3b82f6))
+    c.add(this.add.circle(4, -22.5, 0.7, 0x10b981))
+
+    // Eyes (slightly bigger / more confident)
+    c.add(this.add.rectangle(-3, -11, 1.8, 2.2, 0x1a1a1a))
+    c.add(this.add.rectangle(3, -11, 1.8, 2.2, 0x1a1a1a))
+    c.add(this.add.rectangle(-3.3, -11.5, 0.7, 0.7, 0xffffff))
+    c.add(this.add.rectangle(2.7, -11.5, 0.7, 0.7, 0xffffff))
+
+    // Confident slight smile
+    c.add(this.add.rectangle(0, -7, 2.4, 0.7, 0x000000, 0.6))
+
+    // Cheek blush
+    c.add(this.add.circle(-5, -8, 1, 0xff8fb1, 0.4))
+    c.add(this.add.circle(5, -8, 1, 0xff8fb1, 0.4))
+
+    // Gold name label
     const name = this.chairmanInfo?.displayName ?? '회장'
-    c.add(this.add.text(0, 18, `${name} · 회장`, {
-      fontSize: '11px', color: '#fde047', fontStyle: 'bold',
-      backgroundColor: '#000000aa', padding: { x: 4, y: 1 },
+    c.add(this.add.text(0, 24, `👑 ${name} · 회장`, {
+      fontSize: '11px',
+      color: '#fde047',
+      fontStyle: 'bold',
+      backgroundColor: '#00000099',
+      padding: { x: 5, y: 2 },
     }).setOrigin(0.5))
 
     this.chairmanContainer = c
+
+    // Subtle gentle bob (royal idle)
+    this.tweens.add({
+      targets: c,
+      y: y + TILE * 1.2 - 0.5,
+      duration: 2200, yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
+    })
   }
 
   // ── Camera pan ─────────────────────────────────
