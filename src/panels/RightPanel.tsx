@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useStore } from '../store/useStore'
-import { hasApiKey, pickEntryAgent, runDelegationChain } from '../ai/chat'
+import { hasApiKey, pickEntryAgent, runTeamDelegation } from '../ai/chat'
 import { ensureConversation, sendMessage, watchMessages } from '../firebase/firestore'
 import { ROLE_ICON } from '../types'
 import type { Agent, Message } from '../types'
@@ -62,7 +62,7 @@ export function RightPanel() {
 
     // Run delegation chain
     try {
-      await runDelegationChain(
+      await runTeamDelegation(
         entry,
         user.displayName,
         agents,
