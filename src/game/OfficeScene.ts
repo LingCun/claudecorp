@@ -1,5 +1,5 @@
 import Phaser from 'phaser'
-import type { Agent, AvatarConfig } from '../types'
+import type { Agent, AvatarConfig, Rank, Role } from '../types'
 import { randomSelfTalk } from '../types/mbti'
 
 const TILE = 32
@@ -10,17 +10,19 @@ interface AgentSprite {
   id: string
   container: Phaser.GameObjects.Container
   body: Phaser.GameObjects.Rectangle
-  hair: Phaser.GameObjects.Rectangle
+  hairGroup: Phaser.GameObjects.GameObject[]   // many shapes per hair style
   nameText: Phaser.GameObjects.Text
   workIndicator: Phaser.GameObjects.Text
   agent: Agent
   desk: Phaser.GameObjects.Rectangle
   monitor: Phaser.GameObjects.Rectangle
+  chair: Phaser.GameObjects.Rectangle
   idleTween?: Phaser.Tweens.Tween
   bubble?: Phaser.GameObjects.Container
 }
 
-const HAIR_COLORS = [0x1a1a1a, 0x6b4423, 0xc9a063, 0xe8d4a8, 0xff6b9d, 0x6fc2ff]
+const HAIR_COLORS = [0x1a1a1a, 0x4a3422, 0x6b4423, 0xa67340, 0xd4a166, 0xe8d4a8, 0xff8fb1, 0x7ec9ff, 0xc4b5fd, 0x86efac]
+const SKIN_TONES = [0xffe4cf, 0xfacdb1, 0xe7b894, 0xc89876]
 const RANK_BADGE_COLOR: Record<string, number> = {
   '사원': 0xa0a0a0, '대리': 0x4ade80, '과장': 0x3b82f6, '차장': 0xa855f7,
   '부장': 0xef4444, '수석': 0xf97316, '대표이사': 0xfbbf24, '부회장': 0x06b6d4, '회장': 0xfde047,
@@ -57,17 +59,18 @@ export class OfficeScene extends Phaser.Scene {
   }
 
   // ── Registry handlers ─────────────────────────
-  private handleAgentsChange = (_parent: Phaser.Data.DataManager, _key: string, value: Agent[]) => {
+  // Phaser's `changedata-<key>` event emits (parent, newValue, previousValue) — 3 args, no key.
+  private handleAgentsChange = (_parent: Phaser.Data.DataManager, value: Agent[]) => {
     console.log('[OfficeScene] handleAgentsChange called with', value?.length ?? 0, 'agents:', value?.map(a => a.name))
     this.renderAgents(value ?? [])
   }
 
-  private handleChairmanChange = (_parent: Phaser.Data.DataManager, _key: string, value: { displayName: string; photoURL: string }) => {
+  private handleChairmanChange = (_parent: Phaser.Data.DataManager, value: { displayName: string; photoURL: string }) => {
     this.chairmanInfo = value
     this.placeChairman()
   }
 
-  private handleWorkingChange = (_parent: Phaser.Data.DataManager, _key: string, value: string | null) => {
+  private handleWorkingChange = (_parent: Phaser.Data.DataManager, value: string | null) => {
     for (const [id, sprite] of this.sprites) {
       const isWorking = id === value
       sprite.workIndicator.setVisible(isWorking)
@@ -162,7 +165,6 @@ export class OfficeScene extends Phaser.Scene {
 
   // ── Agents ──────────────────────────────────────
   private renderAgents(agents: Agent[]) {
-    console.log('[OfficeScene] renderAgents:', agents.length, 'agents — current sprites:', this.sprites.size)
     // Sort by hire time ASC so desk positions stay stable as new hires are added
     const sorted = [...agents].sort((a, b) => (a.hiredAt ?? 0) - (b.hiredAt ?? 0))
     const currentIds = new Set(sorted.map((a) => a.id))
@@ -174,6 +176,7 @@ export class OfficeScene extends Phaser.Scene {
         sprite.container.destroy()
         sprite.desk.destroy()
         sprite.monitor.destroy()
+        sprite.chair.destroy()
         this.sprites.delete(id)
       }
     }
@@ -185,12 +188,27 @@ export class OfficeScene extends Phaser.Scene {
 
       const existing = this.sprites.get(agent.id)
       if (existing) {
-        // Update visuals — position should already be stable due to ASC sort
-        existing.agent = agent
-        existing.body.setFillStyle(this.bodyColor(agent.avatar))
-        existing.hair.setFillStyle(HAIR_COLORS[agent.avatar.hairColor % HAIR_COLORS.length])
-        existing.nameText.setText(`${agent.name} · ${agent.rank}`)
-        existing.nameText.setColor(this.rankColor(agent.rank))
+        // If rank/role/mbti changed materially, easiest is to rebuild
+        const needsRebuild =
+          existing.agent.rank !== agent.rank ||
+          existing.agent.role !== agent.role ||
+          existing.agent.avatar?.body !== agent.avatar?.body ||
+          existing.agent.avatar?.hair !== agent.avatar?.hair ||
+          existing.agent.avatar?.hairColor !== agent.avatar?.hairColor
+        if (needsRebuild) {
+          existing.idleTween?.stop()
+          existing.container.destroy()
+          existing.desk.destroy()
+          existing.monitor.destroy()
+          existing.chair.destroy()
+          this.sprites.delete(agent.id)
+          this.createAgentSprite(agent, pos)
+        } else {
+          // Lightweight update — just text
+          existing.agent = agent
+          existing.nameText.setText(`${agent.name} · ${agent.rank}`)
+          existing.nameText.setColor(this.rankColor(agent.rank))
+        }
         return
       }
 
@@ -199,37 +217,96 @@ export class OfficeScene extends Phaser.Scene {
   }
 
   private createAgentSprite(agent: Agent, pos: { x: number; y: number }) {
-    console.log('[OfficeScene] createAgentSprite', agent.name, '@desk', pos)
-
-    const desk = this.add.rectangle(pos.x, pos.y + 2, TILE * 2, TILE * 0.9, 0x6b4423)
-      .setStrokeStyle(2, 0x8b5a2b)
+    // ── Desk (wooden top with darker edge) ──
+    const desk = this.add.rectangle(pos.x, pos.y + 4, TILE * 2.1, TILE * 0.95, 0x8b5a2b)
+      .setStrokeStyle(2, 0x5a3a1c)
       .setDepth(10)
-    const monitor = this.add.rectangle(pos.x, pos.y - 8, TILE * 0.7, TILE * 0.45, 0x334155)
-      .setStrokeStyle(1, 0x475569)
+    // Desk top highlight
+    this.add.rectangle(pos.x, pos.y + 1, TILE * 2.1 - 2, 2, 0xa67340, 0.6).setDepth(10.5)
+
+    // ── Monitor (with stand) ──
+    this.add.rectangle(pos.x, pos.y - 2, 3, 5, 0x475569).setDepth(10.5) // stand
+    this.add.rectangle(pos.x, pos.y - 5, 10, 1.5, 0x475569).setDepth(10.5) // base
+    const monitor = this.add.rectangle(pos.x, pos.y - 12, TILE * 0.85, TILE * 0.58, 0x0f172a)
+      .setStrokeStyle(2, 0x475569)
       .setDepth(11)
+    // Monitor inner screen
+    this.add.rectangle(pos.x, pos.y - 12, TILE * 0.85 - 4, TILE * 0.58 - 4, 0x1e293b).setDepth(11.5)
 
-    const c = this.add.container(pos.x, pos.y + TILE * 1.1)
-    c.setSize(24, 36)
-    c.setInteractive({ cursor: 'pointer' })
-    c.setDepth(20)
+    // ── Chair (visible from behind/sides of character) ──
+    const chairY = pos.y + TILE * 1.4
+    const chair = this.add.rectangle(pos.x, chairY, 16, 16, 0x3a4254)
+      .setStrokeStyle(1, 0x1e293b)
+      .setDepth(15)
 
-    const body = this.add.rectangle(0, 0, 14, 18, this.bodyColor(agent.avatar))
-      .setStrokeStyle(1, 0x000000)
+    // ── Character container ──
+    const targetY = pos.y + TILE * 1.1
+    const c = this.add.container(pos.x, targetY)
+    c.setSize(24, 36).setInteractive({ cursor: 'pointer' }).setDepth(20)
+
+    const skin = SKIN_TONES[agent.avatar.body % SKIN_TONES.length]
+    const hairColor = HAIR_COLORS[agent.avatar.hairColor % HAIR_COLORS.length]
+    const shirt = this.bodyColor(agent.avatar)
+
+    // ── Pants (small, mostly hidden by chair) ──
+    c.add(this.add.rectangle(0, 12, 10, 5, 0x1e293b))
+
+    // ── Body / shoulders (slightly rounded look via two rects) ──
+    const body = this.add.rectangle(0, 4, 18, 14, shirt).setStrokeStyle(1, 0x000000aa)
     c.add(body)
+    // Shoulder highlight (top edge lighter)
+    c.add(this.add.rectangle(0, -1, 18, 1.5, 0xffffff, 0.2))
 
-    c.add(this.add.rectangle(0, -12, 12, 12, 0xfde9c8).setStrokeStyle(1, 0x000000))
+    // ── Arms (small chunks on sides) ──
+    c.add(this.add.rectangle(-10, 4, 3, 10, shirt).setStrokeStyle(1, 0x000000aa))
+    c.add(this.add.rectangle(10, 4, 3, 10, shirt).setStrokeStyle(1, 0x000000aa))
+    // Hands
+    c.add(this.add.rectangle(-10, 9, 3, 3, skin))
+    c.add(this.add.rectangle(10, 9, 3, 3, skin))
 
-    const hair = this.add.rectangle(0, -16, 14, 6, HAIR_COLORS[agent.avatar.hairColor % HAIR_COLORS.length])
-    c.add(hair)
+    // ── Neck ──
+    c.add(this.add.rectangle(0, -4, 5, 3, skin))
 
-    c.add(this.add.circle(7, -3, 2, RANK_BADGE_COLOR[agent.rank] ?? 0xffffff))
+    // ── Rank-specific outfit accent (tie/lapels/vest) ──
+    this.drawRankAccent(c, agent.rank)
 
-    const nameText = this.add.text(0, 14, `${agent.name} · ${agent.rank}`, {
+    // ── Head ──
+    c.add(this.add.rectangle(0, -11, 13, 13, skin).setStrokeStyle(1, 0x000000aa))
+
+    // ── Hair (varies by style) ──
+    const hairGroup: Phaser.GameObjects.GameObject[] = []
+    this.drawHair(c, hairGroup, agent.avatar.hair, hairColor)
+
+    // ── Eyes ──
+    c.add(this.add.rectangle(-3, -11, 1.6, 2, 0x1a1a1a))
+    c.add(this.add.rectangle(3, -11, 1.6, 2, 0x1a1a1a))
+    // Eye sparkle
+    c.add(this.add.rectangle(-3.2, -11.4, 0.6, 0.6, 0xffffff))
+    c.add(this.add.rectangle(2.8, -11.4, 0.6, 0.6, 0xffffff))
+
+    // ── Mouth (subtle) ──
+    c.add(this.add.rectangle(0, -7, 1.8, 0.6, 0x000000, 0.5))
+
+    // ── Cheek blush ──
+    c.add(this.add.circle(-4.5, -8, 1, 0xff8fb1, 0.4))
+    c.add(this.add.circle(4.5, -8, 1, 0xff8fb1, 0.4))
+
+    // ── Role accessory (headphones / glasses / badge / etc.) ──
+    this.drawRoleAccessory(c, agent.role, hairColor)
+
+    // ── Rank badge dot ──
+    c.add(this.add.circle(8, -3, 2, RANK_BADGE_COLOR[agent.rank] ?? 0xffffff)
+      .setStrokeStyle(0.5, 0x000000))
+
+    // ── Name label ──
+    const nameText = this.add.text(0, 22, `${agent.name} · ${agent.rank}`, {
       fontSize: '9px', color: this.rankColor(agent.rank),
       backgroundColor: '#000000aa', padding: { x: 3, y: 1 },
+      fontStyle: 'bold',
     }).setOrigin(0.5)
     c.add(nameText)
 
+    // ── Work indicator ✦ ──
     const workIndicator = this.add.text(0, -32, '✦', {
       fontSize: '14px', color: '#fde047',
     }).setOrigin(0.5).setVisible(false)
@@ -238,26 +315,20 @@ export class OfficeScene extends Phaser.Scene {
       targets: workIndicator,
       y: -36,
       duration: 800,
-      yoyo: true,
-      repeat: -1,
-      ease: 'Sine.easeInOut',
+      yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
     })
 
-    // Character is positioned at final desk position immediately — no entry animation.
-    // (Debug: keeping animations off until first-hire bug is resolved.)
-    const targetY = pos.y + TILE * 1.1
+    // Sprite is at final y immediately (no risky entry tween).
     c.setY(targetY)
 
-    // Defer idle bob to next frame so even brand-new scenes don't drop the tween.
-    this.time.delayedCall(50, () => {
+    // Defer idle bob so brand-new scenes don't drop it.
+    this.time.delayedCall(60, () => {
       if (!this.sprites.has(agent.id)) return
       const idleTween = this.tweens.add({
         targets: c,
         y: targetY - 1,
         duration: 1400 + Math.random() * 400,
-        yoyo: true,
-        repeat: -1,
-        ease: 'Sine.easeInOut',
+        yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
       })
       const sprite = this.sprites.get(agent.id)
       if (sprite) sprite.idleTween = idleTween
@@ -270,9 +341,164 @@ export class OfficeScene extends Phaser.Scene {
     })
 
     this.sprites.set(agent.id, {
-      id: agent.id, container: c, body, hair, nameText, workIndicator,
-      agent, desk, monitor,
+      id: agent.id, container: c, body, hairGroup, nameText, workIndicator,
+      agent, desk, monitor, chair,
     })
+  }
+
+  // ── Hair styles (10 variants by avatar.hair index) ──
+  private drawHair(c: Phaser.GameObjects.Container, group: Phaser.GameObjects.GameObject[], style: number, color: number) {
+    const push = (obj: Phaser.GameObjects.GameObject) => { c.add(obj); group.push(obj) }
+    const make = (x: number, y: number, w: number, h: number) =>
+      this.add.rectangle(x, y, w, h, color)
+
+    const variant = style % 10
+    switch (variant) {
+      case 0: // short messy
+        push(make(0, -17, 14, 4))
+        push(make(-5, -15, 4, 3))
+        push(make(5, -15, 4, 3))
+        break
+      case 1: // bowl cut
+        push(make(0, -17, 15, 5))
+        push(make(-7, -13, 2, 5))
+        push(make(7, -13, 2, 5))
+        break
+      case 2: // long bangs
+        push(make(0, -17, 14, 5))
+        push(make(-3, -12, 3, 3))
+        push(make(3, -12, 3, 3))
+        break
+      case 3: // spiky
+        push(make(0, -17, 13, 4))
+        push(make(-4, -19, 2, 3))
+        push(make(0, -20, 2, 4))
+        push(make(4, -19, 2, 3))
+        break
+      case 4: // ponytail back (visible bun at back of head)
+        push(make(0, -17, 13, 4))
+        push(make(-3, -13, 4, 2))
+        push(this.add.circle(0, -7, 2, color))
+        break
+      case 5: // side-parted
+        push(make(2, -17, 11, 4))
+        push(make(-2, -16, 4, 3))
+        break
+      case 6: // afro/curls
+        push(this.add.circle(0, -17, 8, color))
+        break
+      case 7: // mohawk
+        push(make(0, -17, 13, 3))
+        push(make(0, -20, 3, 4))
+        break
+      case 8: // long straight (down sides)
+        push(make(0, -17, 14, 4))
+        push(make(-7, -10, 2, 8))
+        push(make(7, -10, 2, 8))
+        break
+      case 9: // bald with edge
+        push(make(0, -18, 11, 2))
+        break
+    }
+  }
+
+  // ── Rank-specific outfit accents (tie / vest / lapels / badge) ──
+  private drawRankAccent(c: Phaser.GameObjects.Container, rank: Rank) {
+    switch (rank) {
+      case '사원':
+        // simple shirt — collar V
+        c.add(this.add.triangle(0, -1, -2, -3, 2, -3, 0, 1, 0xffffff, 0.5))
+        break
+      case '대리':
+        c.add(this.add.rectangle(0, 4, 2, 9, 0xc92a2a)) // red tie
+        c.add(this.add.triangle(0, -1, -2, -3, 2, -3, 0, 1, 0xffffff, 0.5))
+        break
+      case '과장':
+        c.add(this.add.rectangle(0, 4, 2.5, 10, 0x1c4a8a)) // blue tie
+        c.add(this.add.rectangle(0, 6, 12, 8, 0x1e293b, 0.45)) // vest hint
+        break
+      case '차장':
+        c.add(this.add.rectangle(0, 4, 2.5, 10, 0x6d28d9))
+        c.add(this.add.rectangle(-7, 5, 2, 12, 0x1e293b)) // jacket left
+        c.add(this.add.rectangle(7, 5, 2, 12, 0x1e293b)) // jacket right
+        break
+      case '부장':
+        c.add(this.add.rectangle(0, 4, 2.5, 10, 0x991b1b))
+        c.add(this.add.rectangle(-7, 5, 3, 13, 0x111827))
+        c.add(this.add.rectangle(7, 5, 3, 13, 0x111827))
+        break
+      case '수석':
+        c.add(this.add.rectangle(0, 4, 2.5, 10, 0xf97316))
+        c.add(this.add.rectangle(-7, 5, 3, 13, 0xa14000))
+        c.add(this.add.rectangle(7, 5, 3, 13, 0xa14000))
+        c.add(this.add.circle(-4, 1, 1.2, 0xfde047)) // pocket pin
+        break
+      case '대표이사':
+        c.add(this.add.rectangle(0, 4, 3, 11, 0xfbbf24)) // gold tie
+        c.add(this.add.rectangle(-7, 5, 3, 13, 0x000000))
+        c.add(this.add.rectangle(7, 5, 3, 13, 0x000000))
+        c.add(this.add.circle(-4, 1, 1.5, 0xfde047).setStrokeStyle(0.4, 0x92400e))
+        break
+      case '부회장':
+      case '회장':
+        // Not used for hired agents, but defensive
+        c.add(this.add.rectangle(0, 4, 3, 11, 0xfde047))
+        c.add(this.add.rectangle(-7, 5, 3, 13, 0x000000))
+        c.add(this.add.rectangle(7, 5, 3, 13, 0x000000))
+        break
+    }
+  }
+
+  // ── Role-specific accessory (headphones, glasses, headset, etc.) ──
+  private drawRoleAccessory(c: Phaser.GameObjects.Container, role: Role, _hairColor: number) {
+    switch (role) {
+      case '개발자':
+      case '개발PL': {
+        // headphones — arc on top + earpads
+        c.add(this.add.rectangle(0, -18, 14, 1.5, 0x1a1a1a))
+        c.add(this.add.rectangle(-7, -14, 2.5, 3.5, 0x1a1a1a))
+        c.add(this.add.rectangle(7, -14, 2.5, 3.5, 0x1a1a1a))
+        // tiny green LED
+        c.add(this.add.circle(7, -14, 0.5, 0x4ade80))
+        break
+      }
+      case '인프라':
+      case '인프라PL': {
+        // hard-hat / cap
+        c.add(this.add.rectangle(0, -18, 14, 2, 0xf97316))
+        c.add(this.add.rectangle(0, -16, 9, 1, 0xf97316))
+        // tool on hip
+        c.add(this.add.rectangle(8, 5, 1.5, 4, 0x9ca3af))
+        break
+      }
+      case '테스터':
+      case '테스터PL': {
+        // round glasses
+        c.add(this.add.circle(-3, -11, 2.4, 0xffffff, 0.15).setStrokeStyle(0.8, 0xffffff))
+        c.add(this.add.circle(3, -11, 2.4, 0xffffff, 0.15).setStrokeStyle(0.8, 0xffffff))
+        c.add(this.add.rectangle(0, -11, 1.4, 0.5, 0xffffff))
+        break
+      }
+      case '기획자':
+      case '기획PL': {
+        // small notepad clipped to side
+        c.add(this.add.rectangle(-10, 2, 3.5, 5, 0xffffff).setStrokeStyle(0.5, 0x000000))
+        c.add(this.add.rectangle(-10, 0.5, 2.5, 0.4, 0x9ca3af))
+        c.add(this.add.rectangle(-10, 2, 2.5, 0.4, 0x9ca3af))
+        break
+      }
+      case '총괄PM':
+      case 'PMO': {
+        // headset (band + mic)
+        c.add(this.add.rectangle(0, -18, 13, 1.2, 0x1a1a1a))
+        c.add(this.add.rectangle(-7, -14, 1.8, 3, 0x1a1a1a))
+        c.add(this.add.rectangle(7, -14, 1.8, 3, 0x1a1a1a))
+        // mic arm
+        c.add(this.add.rectangle(-5.5, -9, 0.5, 5, 0x1a1a1a))
+        c.add(this.add.circle(-5.5, -6, 1, 0x4ade80))
+        break
+      }
+    }
   }
 
   private showSpeechBubble(sprite: AgentSprite, text: string) {
